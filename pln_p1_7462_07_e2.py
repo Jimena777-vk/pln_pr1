@@ -64,4 +64,4 @@ def main():
     return reader
 
 if __name__ == "__main__":
-    main()
+    reader = main()
