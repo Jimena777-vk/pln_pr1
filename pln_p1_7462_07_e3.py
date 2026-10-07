@@ -144,7 +144,12 @@ class AmazonCorpusReader(CategorizedCorpusReader, CorpusReader):
         """Yield each review as a dict with all its fields."""
         for fileid in self._resolve(fileids, categories):
             with self.open(fileid) as f:
-                yield json.loads(f.read())
+                content = f.read()
+            try:
+                review = json.loads(content)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in {fileid}") from e
+            yield review
 
     def ratings(self, fileids=None, categories=None):
         """Yield the rating of each review."""
