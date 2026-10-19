@@ -30,6 +30,9 @@ import gzip
 import json
 import urllib.request
 from pathlib import Path
+import http.client
+import time
+import urllib.error
 
 BASE = "https://mcauleylab.ucsd.edu/public_datasets/data/amazon_2023/raw"
 
@@ -75,30 +78,65 @@ def rating_to_label(rating):
     return "positive"
 
 
-def download_file(url, dest):
+def download_file(url, dest, retries=10):
     """
     Download a file from a URL to a local path, unless it already exists.
-
+ 
     The file is kept compressed (.gz). It is first saved with a ".part"
     suffix and renamed only when the download finishes, so an interrupted
     download never leaves a corrupt file with the final name.
-
+ 
+    If the connection drops, the download is retried. Each new attempt
+    asks the server only for the missing bytes (HTTP "Range" header) and
+    appends them to the ".part" file, instead of starting again.
+ 
     Parameters:
     - url: str, URL of the file to download.
     - dest: str or Path, local path where the file will be saved.
-
+    - retries: int, maximum number of attempts.
+ 
     Returns:
     - Path, the path of the downloaded (or already existing) file.
     """
-    dest = Path(dest) #transform into a Path() object
+    dest = Path(dest)
     if dest.exists():
         print(f"{dest.name} Already exists")
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"Download -{url}")
-    tmp = dest.with_suffix(dest.suffix + ".part") #creates temporal file
-    urllib.request.urlretrieve(url, tmp)
-    tmp.rename(dest)  # rename once the download is done
+
+    for attempt in range(1, retries + 1):
+        done = tmp.stat().st_size if tmp.exists() else 0
+        # Ask the server only for the bytes that are still missing
+        request = urllib.request.Request(url, headers={"Range": f"bytes={done}-"})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                if response.status == 206:      # server resumes the download
+                    total = int(response.headers["Content-Range"].split("/")[-1])
+                    mode = "ab"
+                else:                           # server sends the whole file
+                    total = int(response.headers.get("Content-Length", 0))
+                    mode = "wb"
+                with open(tmp, mode) as f:
+                    while True:
+                        block = response.read(1024 * 1024)
+                        if not block:
+                            break
+                        f.write(block)
+            if not total or tmp.stat().st_size >= total:
+                break
+        except urllib.error.HTTPError as e:
+            if e.code == 416:                   # nothing left to download
+                break
+            print(f"attempt {attempt} failed: {e}")
+        except (OSError, http.client.HTTPException) as e:   # connection dropped
+            print(f"attempt {attempt} failed: {e}")
+        time.sleep(5)
+    else:
+        raise RuntimeError(f"Download failed after {retries} attempts: {url}")
+
+    tmp.rename(dest)
     print(f"ok - {dest}")
     return dest
 
@@ -191,7 +229,7 @@ def main():
                     choices=list(DATASETS), help="datasets to process")
     parser.add_argument("--data-dir", default="data",
                         help="base folder (raw/ and corpus/ are created inside)")
-    parser.add_argument("--max-per-class", type=int, default=1000,
+    parser.add_argument("--max-per-class", type=int, default= None,
                 help="max. reviews per class and dataset (empty = no limit)")
 
     args = parser.parse_args()
