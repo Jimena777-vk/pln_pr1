@@ -141,14 +141,19 @@ class AmazonCorpusReader(CategorizedCorpusReader, CorpusReader):
 
 
     def reviews(self, fileids=None, categories=None):
-        """Yield each review as a dict with all its fields."""
+        """
+        Yield each review as a dict with all its fields.
+
+        Empty files and files with invalid JSON are skipped with a warning.
+        """
         for fileid in self._resolve(fileids, categories):
             with self.open(fileid) as f:
                 content = f.read()
             try:
                 review = json.loads(content)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON in {fileid}") from e
+            except json.JSONDecodeError:
+                print(f"WARNING: skipped invalid file {fileid} ({len(content)} chars)")
+                continue
             yield review
 
     def ratings(self, fileids=None, categories=None):
@@ -201,7 +206,13 @@ class AmazonCorpusReader(CategorizedCorpusReader, CorpusReader):
         products, users = set(), set()
         size_bytes = 0
 
+        n_docs = invalid = 0
         for fileid in selected:
+            review = next(self.reviews(fileid), None)
+            if review is None:          # empty or invalid file
+                invalid += 1
+                continue
+            n_docs += 1
             size_bytes += os.path.getsize(self.abspath(fileid))
             per_category.update(self.categories(fileid))
             review = next(self.reviews(fileid))
