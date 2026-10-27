@@ -4,6 +4,8 @@ import nltk
 import os
 import json
 
+# Programa en desuso, por favor, use el módulo pln_pr1.pln_p1_7462_07_e3 para trabajar con el corpus de Amazon.
+
 class AmazonCorpusReader(CategorizedCorpusReader, CorpusReader):
     def __init__(self, root='data/corpus', fileids=r'.*\.json', encoding='utf8', **kwargs):
         CategorizedCorpusReader.__init__(self, kwargs)
